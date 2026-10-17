@@ -1,0 +1,76 @@
+# .github/workflows/bugmojo-verify-mobile.yml
+#
+# Copy this into YOUR repository at .github/workflows/bugmojo-verify-mobile.yml.
+# It runs your BugMojo MOBILE repro flows (.maestro/bugmojo/*.flow.yaml) against a
+# freshly built React Native / Expo app on an Android emulator and reports
+# PASS/FAIL back to BugMojo. A passing repro promotes the bug from DEV_TESTING
+# (fixed-pending-verification) to VERIFIED_FIXED — the SAME state machine web uses.
+#
+# SECRETS you must add in your repo (Settings -> Secrets and variables -> Actions):
+#   BUGMOJO_CI_WEBHOOK_SECRET   the CI webhook secret from your BugMojo project
+#                               settings (Integrations -> Deploy/CI hook). This is
+#                               the SAME secret the web verify action uses.
+#
+# PLACEHOLDERS you must fill:
+#   <YOUR_APP_ID>               your app's package name / bundle id (e.g. com.acme.app)
+#   the build step              replace the placeholder build with your EAS / Gradle
+#                               build that produces an installable APK/app.
+#
+# NOTE: a real device/simulator is required — the mobile loop cannot run on a bare
+# ubuntu runner without the Android emulator step below (or a device-farm shard).
+
+name: BugMojo Verify (Mobile)
+
+on:
+  # Fire after a mobile build workflow finishes (recommended).
+  workflow_run:
+    workflows: ['Mobile Build'] # <-- change to the name of your build workflow
+    types: [completed]
+  # ...or run manually.
+  workflow_dispatch:
+
+jobs:
+  verify-mobile:
+    # macOS runners can boot the iOS Simulator; Android emulators run on ubuntu
+    # with KVM. This example uses Android on ubuntu (cheapest); swap to macos-latest
+    # + xcrun simctl for iOS.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo (so .maestro/bugmojo/*.flow.yaml is available)
+        uses: actions/checkout@v4
+
+      # --- Build + install your app on the emulator (PLACEHOLDER) --------------
+      # Replace this with your real build. The app must be INSTALLED on the running
+      # emulator before the verify step. Common options:
+      #   • EAS build + `eas build --local` then `adb install <apk>`
+      #   • `./gradlew assembleRelease` then `adb install app/build/.../app.apk`
+      - name: Build app (replace with your build)
+        run: |
+          echo "TODO - build your APK and expose its path"
+
+      # --- Boot an Android emulator and run the Maestro repros ----------------
+      # reactivecircus/android-emulator-runner boots a headless emulator with KVM,
+      # then runs the provided script inside it. We install the app + run the
+      # BugMojo mobile verify action there.
+      - name: Run repros on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            # adb install path/to/your/app.apk
+            echo "TODO: adb install your built APK here"
+
+      - name: Report BugMojo Maestro repro results
+        uses: viveksinra/bugmojo-verify-action/mobile@v1
+        with:
+          # Your BugMojo instance base URL.
+          bugmojo-url: 'https://www.bugmojo.com'
+          # NEVER inline the secret — always reference the repo secret.
+          ci-webhook-secret: ${{ secrets.BUGMOJO_CI_WEBHOOK_SECRET }}
+          # Pass the app id the generated flow references (matches its `appId:` header).
+          maestro-env: 'APP_ID=<YOUR_APP_ID>'
+          # Optional: force a single bug key. Omit to derive per flow filename
+          # (.maestro/bugmojo/MOB-42.flow.yaml -> bug_key "MOB-42").
+          # bug-key: 'MOB-42'

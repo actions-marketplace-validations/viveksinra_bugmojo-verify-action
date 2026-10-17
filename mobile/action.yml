@@ -1,0 +1,77 @@
+name: 'BugMojo Verify (Mobile / Maestro)'
+description: >-
+  Run a mobile bug's BugMojo repro flow (Maestro) on your app build; a pass marks
+  it VERIFIED_FIXED, a fail reopens it.
+author: 'BugMojo'
+branding:
+  icon: 'smartphone'
+  color: 'green'
+
+# ---------------------------------------------------------------------------
+# BugMojo Verify (Mobile) — the mobile half of the verified loop (Wave 5).
+#
+# This is the MOBILE analogue of the web `action.yml`. It reuses the EXACT SAME
+# CI webhook contract (`POST /api/webhooks/ci` with { bug_key, passed, proof_url })
+# so a mobile bug flows through the IDENTICAL verified-loop state machine as web —
+# there is no forked pipeline. The only difference is the runner: instead of
+# Playwright against a deployed URL, it runs Maestro flows against a native build
+# on an attached emulator/simulator (or a device-farm shard).
+#
+# The caller's job MUST boot the emulator/simulator and install the app build
+# BEFORE this action runs (see examples/bugmojo-verify-mobile.yml). This action
+# only installs Maestro, runs the flows, and reports.
+# ---------------------------------------------------------------------------
+
+inputs:
+  bugmojo-url:
+    description: 'Base URL of your BugMojo instance. Defaults to the hosted app; set it only for a self-hosted instance.'
+    required: false
+    default: 'https://www.bugmojo.com'
+  ci-webhook-secret:
+    description: 'Shared secret for the CI webhook. Pass ${{ secrets.BUGMOJO_CI_WEBHOOK_SECRET }}. NEVER inline it.'
+    required: true
+  bug-key:
+    description: >-
+      Optional project-scoped bug key (e.g. MOB-42) to report the aggregate
+      result against. If omitted, the action reports per-flow using the bug key
+      encoded in each flow file name (see MOBILE.md).
+    required: false
+    default: ''
+  flow-glob:
+    description: 'Glob for the Maestro repro flows to run.'
+    required: false
+    default: '.maestro/bugmojo/**/*.flow.yaml'
+  maestro-env:
+    description: >-
+      Optional comma-separated key=value pairs forwarded to `maestro test -e`
+      (e.g. APP_ID=com.acme.app that the generated flow references).
+    required: false
+    default: ''
+  working-directory:
+    description: 'Directory to run in (where .maestro/bugmojo lives).'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Maestro
+      shell: bash
+      run: |
+        # Install the Maestro CLI (idempotent — skips if already on PATH).
+        if ! command -v maestro >/dev/null 2>&1; then
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+        fi
+        echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+    - name: Run BugMojo Maestro repro(s) and report result
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BUGMOJO_URL: ${{ inputs.bugmojo-url }}
+        CI_WEBHOOK_SECRET: ${{ inputs.ci-webhook-secret }}
+        BUG_KEY: ${{ inputs.bug-key }}
+        FLOW_GLOB: ${{ inputs.flow-glob }}
+        MAESTRO_ENV: ${{ inputs.maestro-env }}
+        BUGMOJO_ACTION_PATH: ${{ github.action_path }}/..
+      run: bash "${{ github.action_path }}/../scripts/run-maestro-and-report.sh"

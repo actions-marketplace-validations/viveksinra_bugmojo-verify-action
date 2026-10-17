@@ -1,0 +1,47 @@
+# .github/workflows/bugmojo-verify.yml
+#
+# Copy this into YOUR repository at .github/workflows/bugmojo-verify.yml.
+# It runs your BugMojo repro tests (tests/bugmojo/*.spec.ts) against a deployed
+# build and reports PASS/FAIL back to BugMojo. A passing repro promotes the bug
+# from DEV_TESTING (fixed-pending-verification) to VERIFIED_FIXED.
+#
+# SECRETS you must add in your repo (Settings -> Secrets and variables -> Actions):
+#   BUGMOJO_CI_WEBHOOK_SECRET   the CI webhook secret from your BugMojo project
+#                               settings (Integrations -> Deploy/CI hook).
+#
+# Adjust the trigger to fire AFTER your deploy completes.
+
+name: BugMojo Verify
+
+on:
+  # Fire after a deploy workflow finishes (recommended).
+  workflow_run:
+    workflows: ['Deploy'] # <-- change to the name of your deploy workflow
+    types: [completed]
+  # ...or run manually against any URL.
+  workflow_dispatch:
+    inputs:
+      deployed_url:
+        description: 'Deployed build URL to verify'
+        required: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo (so tests/bugmojo/*.spec.ts is available)
+        uses: actions/checkout@v4
+
+      - name: Run BugMojo repro(s) and report result
+        uses: viveksinra/bugmojo-verify-action@v1
+        with:
+          # The build to test. For workflow_run, resolve this from your deploy
+          # output; here we default to a staging URL / the manual input.
+          deployed-url: ${{ github.event.inputs.deployed_url || 'https://staging.example.com' }}
+          # Your BugMojo instance base URL.
+          bugmojo-url: 'https://www.bugmojo.com'
+          # NEVER inline the secret — always reference the repo secret.
+          ci-webhook-secret: ${{ secrets.BUGMOJO_CI_WEBHOOK_SECRET }}
+          # Optional: force a single bug key. Omit to derive per spec filename
+          # (tests/bugmojo/WEB-42.spec.ts -> bug_key "WEB-42").
+          # bug-key: 'WEB-42'

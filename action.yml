@@ -1,0 +1,76 @@
+name: 'BugMojo Verify'
+description: >-
+  Run a bug's BugMojo repro test against your deployed build; a pass marks it
+  VERIFIED_FIXED, a fail reopens it.
+author: 'BugMojo'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+# ---------------------------------------------------------------------------
+# BugMojo Verify — the customer-side half of the verified loop (Wave 3b).
+#
+# When a bug's fix PR merges, BugMojo moves the bug to DEV_TESTING
+# (fixed-pending-verification). A "verified fixed" bug is one whose OWN PR'd
+# repro test PASSES on the patched build. There is NO BugMojo-hosted browser
+# runner in v1 — YOUR CI runs the repro and reports back. This action is that
+# reporter: it runs tests/bugmojo/*.spec.ts with @playwright/test against your
+# deployed URL and POSTs the result to POST /api/webhooks/ci.
+# ---------------------------------------------------------------------------
+
+inputs:
+  deployed-url:
+    description: 'Base URL of the deployed build to test (e.g. https://staging.example.com).'
+    required: true
+  bugmojo-url:
+    description: 'Base URL of your BugMojo instance. Defaults to the hosted app; set it only for a self-hosted instance.'
+    required: false
+    default: 'https://www.bugmojo.com'
+  ci-webhook-secret:
+    description: 'Shared secret for the CI webhook. Pass ${{ secrets.BUGMOJO_CI_WEBHOOK_SECRET }}. NEVER inline it.'
+    required: true
+  bug-key:
+    description: >-
+      Optional project-scoped bug key (e.g. WEB-42) to report the aggregate
+      result against. If omitted, the action reports per-spec using the bug key
+      encoded in each spec file name (see README).
+    required: false
+    default: ''
+  spec-glob:
+    description: 'Glob for the repro specs to run.'
+    required: false
+    default: 'tests/bugmojo/**/*.spec.ts'
+  working-directory:
+    description: 'Directory to run in (where package.json / tests/bugmojo live).'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Playwright test runner
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Install @playwright/test if the repo does not already provide it.
+        if [ ! -d node_modules/@playwright/test ]; then
+          npm install --no-save @playwright/test
+        fi
+        npx playwright install --with-deps chromium
+
+    - name: Run BugMojo repro(s) and report result
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        DEPLOYED_URL: ${{ inputs.deployed-url }}
+        BUGMOJO_URL: ${{ inputs.bugmojo-url }}
+        CI_WEBHOOK_SECRET: ${{ inputs.ci-webhook-secret }}
+        BUG_KEY: ${{ inputs.bug-key }}
+        SPEC_GLOB: ${{ inputs.spec-glob }}
+        BUGMOJO_ACTION_PATH: ${{ github.action_path }}
+      run: bash "${{ github.action_path }}/scripts/run-and-report.sh"
